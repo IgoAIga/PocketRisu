@@ -1,5 +1,6 @@
 import { forageStorage } from 'src/ts/globalApi.svelte'
 import { language } from 'src/lang'
+import { registerBrowsableJob } from './backgroundBrowsing'
 
 // Server-side model-preset requests — job-based fetchImpl (Stage 3 of
 // .agent/notes/model-preset-server-side-requests.md).
@@ -43,6 +44,7 @@ export class ModelJobConnectionLostError extends Error {
 }
 
 export interface JobFetchOptions {
+    backgroundBrowsing?: boolean
     /** Job key: the real chat.id for main generations (server enforces one
      *  running main job per chat on it). Aux side requests pass their unique
      *  per-request genId here instead — the guard never applies to them. */
@@ -158,6 +160,13 @@ export function makeJobFetch(opts: JobFetchOptions): typeof fetch {
                 }
                 throw err
             }
+        }
+
+        if (opts.jobKind === 'main') {
+            registerBrowsableJob(opts.generationId, async () => {
+                const response = await fetch(`/api/model-jobs/${jobId}/claim`, { method: 'POST', headers: await authHeader() })
+                if (!response.ok) throw new Error(`Job claim failed: ${response.status}`)
+            }, opts.backgroundBrowsing === true && !opts.streaming)
         }
 
         // Abort propagation: aborting the request DELETEs the job (server
@@ -287,6 +296,9 @@ export function makeJobFetch(opts: JobFetchOptions): typeof fetch {
         }
 
         const claim = () => {
+            // Main responses are acknowledged by saveThenClaimJob, after the
+            // originating chat is durable. Reading bytes is not a chat save.
+            if (opts.jobKind === 'main') return
             void (async () => {
                 await fetch(`/api/model-jobs/${jobId}/claim`, { method: 'POST', headers: await authHeader() })
             })().catch(() => {})
@@ -340,9 +352,8 @@ export function makeJobFetch(opts: JobFetchOptions): typeof fetch {
                     if (job?.status === 'done') {
                         detach()
                         controller.close()
-                        // Claim fire-and-forget: marks the job as collected so
-                        // Stage 4's discovery skips it. The tiny crash window
-                        // before the claim lands is covered by genId idempotency.
+                        // Auxiliary responses have no chat commit. Main jobs
+                        // remain recoverable until output processing and save.
                         claim()
                         return
                     }

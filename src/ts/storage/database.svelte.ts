@@ -1072,6 +1072,7 @@ export interface DynamicOutput {
 }
 
 export interface RisuPersona {
+    profileImages?:string[]
     personaPrompt:string
     name:string
     icon:string
@@ -2281,6 +2282,7 @@ export function normalizeChat(chat: Partial<Chat>): Chat {
 }
 
 export interface Chat{
+    personalMemo?:string
     message: Message[]
     note:string
     name:string
@@ -2362,6 +2364,8 @@ export interface Message{
 }
 
 export interface MessageGenerationInfo{
+    /** Recovery hooks are checkpointed separately from the provider response. */
+    outputRecovery?: { next: number; state: 'pending' | 'running' | 'done' | 'blocked'; jobId: string }
     model?: string
     modelId?: string
     generationId?: string

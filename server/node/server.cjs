@@ -1966,6 +1966,8 @@ async function fetchLatestRelease(lang) {
 // cookie issued after initial JWT auth. Single-user environment: Map is fine.
 // Sessions are persisted to disk so they survive server restarts.
 const SESSION_FILE = path.join(process.cwd(), 'save', '__sessions')
+const { assetSessionCookieName, readAssetSessionCookie } = require('./asset-session-cookie.cjs')
+const sessionCookieName = assetSessionCookieName(instanceId)
 const sessions = new Map() // token → expiresAt (ms)
 
 function loadSessions() {
@@ -1986,13 +1988,7 @@ function saveSessions() {
 loadSessions()
 
 function parseSessionCookie(req) {
-    const cookieHeader = req.headers.cookie || ''
-    for (const part of cookieHeader.split(';')) {
-        const eq = part.indexOf('=')
-        if (eq === -1) continue
-        if (part.slice(0, eq).trim() === 'risu-session') return part.slice(eq + 1).trim()
-    }
-    return null
+    return readAssetSessionCookie(req.headers.cookie, sessionCookieName)
 }
 
 function sessionAuthMiddleware(req, res, next) {
@@ -3795,7 +3791,7 @@ app.post('/api/session', async (req, res) => {
     }
     saveSessions()
     const maxAge = 7 * 24 * 60 * 60 // seconds
-    res.setHeader('Set-Cookie', `risu-session=${token}; HttpOnly; SameSite=Strict; Max-Age=${maxAge}; Path=/`)
+    res.setHeader('Set-Cookie', `${sessionCookieName}=${token}; HttpOnly; SameSite=Strict; Max-Age=${maxAge}; Path=/`)
     res.json({ ok: true })
 })
 
@@ -6197,6 +6193,91 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
         next(error);
     }
 });
+
+// Recovery checkpoints must reach disk before a side-effectful hook starts.
+// The permanent receipt deliberately prevents automatic replay after an
+// ambiguous disconnect (external image/LLM requests cannot be rolled back).
+app.post('/api/output-recovery-checkpoint', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!checkActiveSession(req, res)) return;
+    try {
+        await queueStorageOperation(async () => {
+            const { chaId, chatId, generationId, claimStage, liveStart, checkLive } = req.body ?? {};
+            if (![chaId, chatId, generationId].every(v => typeof v === 'string' && v.length > 0 && v.length < 200)) {
+                return res.status(400).json({ error: 'Invalid recovery identity' });
+            }
+            await ensureChatStore();
+            const chat = fullChatStore.get(chaId)?.get(chatId);
+            if (!chat) return res.status(404).json({ error: 'Chat missing' });
+            const liveKey = `output-recovery-live/${chatId}/${generationId}`;
+            if (checkLive === true) return res.json({ attempted: !!kvGet(liveKey) });
+            if (liveStart === true) {
+                if (kvGet(liveKey) || chat.message?.some(m => m.generationInfo?.generationId === generationId && m.generationInfo?.outputRecovery)) {
+                    return res.status(409).json({ error: 'Output already owned by a live or recovery pipeline' });
+                }
+                kvSet(liveKey, Buffer.from(JSON.stringify({ at: Date.now() })));
+                return res.json({ success: true });
+            }
+            const message = chat?.message?.find(m => m.generationInfo?.generationId === generationId);
+            const state = message?.generationInfo?.outputRecovery;
+            if (!state || !dbCache[DB_HEX_KEY]) return res.status(409).json({ error: 'Recovery checkpoint missing' });
+            if (claimStage !== undefined && (!Number.isInteger(claimStage) || claimStage < 0 || claimStage > 5 || state.next !== claimStage)) {
+                return res.status(409).json({ error: 'Recovery stage mismatch' });
+            }
+            if (claimStage !== undefined && kvGet(liveKey)) return res.status(409).json({ error: 'Live output was already attempted' });
+            // Serialized with all other chat writes; do not acknowledge a
+            // pending cache write as durable success.
+            await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin');
+            if (claimStage !== undefined) {
+                const key = `output-recovery/${chatId}/${generationId}/${claimStage}`;
+                if (kvGet(key)) return res.status(409).json({ error: 'Stage already attempted; manual review required' });
+                kvSet(key, Buffer.from(JSON.stringify({ at: Date.now(), jobId: state.jobId })));
+            }
+            res.json({ success: true });
+        });
+    } catch (error) { next(error); }
+});
+
+app.post('/api/output-recovery-resolve', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!checkActiveSession(req, res)) return;
+    try {
+        await queueStorageOperation(async () => {
+            const { chaId, chatId, generationId, action } = req.body ?? {};
+            if (!['retry', 'skip'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
+            await ensureChatStore();
+            const chat = fullChatStore.get(chaId)?.get(chatId);
+            const message = chat?.message?.at(-1);
+            const state = message?.generationInfo?.outputRecovery;
+            if (!state || !dbCache[DB_HEX_KEY] || message.generationInfo.generationId !== generationId || state.state === 'done') {
+                return res.status(409).json({ error: 'Only the current unfinished response can be resumed' });
+            }
+            const previous = { ...state };
+            const nextStage = Math.min(6, state.next + (action === 'skip' ? 1 : 0));
+            message.generationInfo.outputRecovery = { ...state, next: nextStage, state: nextStage === 6 ? 'done' : 'pending' };
+            try { await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin'); }
+            catch (error) { message.generationInfo.outputRecovery = previous; throw error; }
+            // Only an explicit user resolution releases ambiguous receipts.
+            kvDel(`output-recovery-live/${chatId}/${generationId}`);
+            if (action === 'retry') kvDel(`output-recovery/${chatId}/${generationId}/${state.next}`);
+            res.json({ chat });
+        });
+    } catch (error) { next(error); }
+});
+
+require('./preparation-context.cjs').registerPreparationRoutes(app, {
+    auth: checkAuth, activeSession: checkActiveSession, queue: queueStorageOperation, get: kvGet, put: kvSet,
+    snapshot: async (chaId, chatId) => {
+        await ensureChatStore();
+        await flushPendingDb();
+        const raw = kvGet('database/database.bin');
+        const db = normalizeJSON(await decodeRisuSave(raw));
+        const chat = fullChatStore.get(chaId)?.get(chatId);
+        if (!chat || !restoreColdStorageChat(chat)) throw new Error('Preparation chat unavailable');
+        return { db, chat };
+    },
+});
+require('./memory-rank.cjs').registerMemoryRankRoute(app, { auth: checkAuth, get: kvGet });
 
 // ── Save-folder migration endpoints ──────────────────────────────────────────
 const migrationMarkerPath = path.join(savePath, '.migrated_to_sqlite');

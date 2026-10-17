@@ -1,6 +1,22 @@
 import { helpEn } from "./help.en";
 
 export const languageEnglish = {
+    chatMemoTitle: "Notes",
+    chatMemoCharacters: "characters",
+    chatMemoLimitHint: "Up to 10,000 characters, including spaces and line breaks.",
+    chatMemoLimitRejected: "This edit exceeds 10,000 characters. Your existing notes have been kept. Shorten the text and try again.",
+    chatMemoLegacyLimit: "These existing notes exceed 10,000 characters. Nothing has been removed. Shorten them to add more text.",
+    personaImagesTitle: "Profile images",
+    personaImagesAdd: "Add image",
+    personaImagesHint: "Choose the image used for this persona. Export a PNG persona card with any image below without changing the active image.",
+    personaImagesUse: "Use image",
+    personaImagesActive: "In use",
+    personaImagesExport: "Export with this image",
+    personaImagesRemoveConfirm: "Remove this image from the persona? If it is in use, another registered image will be selected.",
+    chatMemoClose: "Close",
+    chatMemoHasContent: "This chat has notes",
+    chatMemoHint: "Notes are saved automatically with this chat. They are not sent to the AI.",
+    chatMemoPlaceholder: "People to remember, important events, next steps…",
     formating: {
         main: "Main Prompt",
         jailbreak: "Jailbreak Prompt",
@@ -2447,6 +2463,11 @@ export const languageEnglish = {
 
     showRequestStatus: "Show request status",
     requestStatus: {
+        postprocessing: "Processing output/modules…",
+        saving: "Saving output…",
+        received: "Response received",
+        outputSaved: "Output saved",
+        kindOutput: "Output",
         connecting: "Connecting…",
         thinking: "Thinking…",
         responding: "Responding…",

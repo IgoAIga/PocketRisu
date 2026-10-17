@@ -24,6 +24,7 @@
     import { HideIconStore, ReloadGUIPointer, selIdState } from "../../ts/stores.svelte"
     import AutoresizeArea from "../UI/GUI/TextAreaResizable.svelte"
     import ChatBody from './ChatBody.svelte'
+    import OutputRecoveryControls from './OutputRecoveryControls.svelte'
     import PopupButton from "../UI/PopupButton.svelte";
     import PartialEditController from './PartialEditController.svelte';
 
@@ -542,6 +543,7 @@
             style:line-height="{(DBState.db.lineHeight ?? 1.25) * (DBState.db.zoomsize / 100)}rem"
         >
             {#key `${totalLengthPointer}|${chatReloadPointer}`}
+                <OutputRecoveryControls info={messageGenerationInfo} />
                 <ChatBody
                     {character}
                     {firstMessage}

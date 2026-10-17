@@ -1,4 +1,4 @@
-import { type memoryVector, HypaProcesser, similarity, contextHash, getPersistedHypaVector, setPersistedHypaVector } from "./hypamemory";
+import { type memoryVector, HypaProcesser, similarity, contextHash, getPersistedHypaVector, setPersistedHypaVector, rankMemoryVectorsOnServer } from "./hypamemory";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 import { TaskRateLimiter } from "./taskRateLimiter";
 import {
@@ -1977,7 +1977,8 @@ class HypaProcesserEx extends HypaProcesser {
         query: string
     ): Promise<[SummaryChunk, number][]> {
         const queryVector = (await this.getEmbeds(query))[0];
-
+        const serverResults = await rankMemoryVectorsOnServer(queryVector, this.summaryChunkVectors.map(s => s.vector));
+        if (serverResults) return serverResults.map(r => [this.summaryChunkVectors[r.index].chunk, r.score]);
         return this.summaryChunkVectors
             .map((scv) => ({
                 chunk: scv.chunk,

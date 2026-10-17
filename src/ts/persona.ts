@@ -1,3 +1,5 @@
+import { DBState } from "./stores.svelte"
+import { addPersonaImage, getPersonaExportImage, removePersonaImage, selectPersonaImage } from "./personaImages"
 import { getDatabase, saveImage, setDatabase } from "./storage/database.svelte"
 import { selectSingleFile, sleep } from "./util"
 import { alertError, alertStore, notifySuccess, notifyError } from "./alert"
@@ -8,22 +10,32 @@ import { PngChunk } from "./pngChunk"
 import { v4 } from "uuid"
 
 export async function selectUserImg() {
-    const selected = await selectSingleFile(['png'])
+    saveUserPersona()
+    const persona = DBState.db.personas[DBState.db.selectedPersona]
+    persona.id ??= v4()
+    const selected = await selectSingleFile(['png', 'webp', 'jpg', 'jpeg'])
     if (!selected) {
         return
     }
     const img = selected.data
-    let db = getDatabase()
     const imgp = await saveImage(img)
-    db.userIcon = imgp
-    db.personas[db.selectedPersona] = {
-        ...db.personas[db.selectedPersona],
-        name: db.username,
-        icon: db.userIcon,
-        personaPrompt: db.personaPrompt,
-        note: db.userNote,
-        id: db.personas[db.selectedPersona].id ?? v4()
-    }
+    // The file picker may outlive the currently selected persona.
+    if (!DBState.db.personas.includes(persona)) return
+    addPersonaImage(persona, imgp)
+    if (DBState.db.personas[DBState.db.selectedPersona] === persona) DBState.db.userIcon = persona.icon
+}
+
+export function useUserImage(image: string) {
+    saveUserPersona()
+    const persona = DBState.db.personas[DBState.db.selectedPersona]
+    if (selectPersonaImage(persona, image)) DBState.db.userIcon = persona.icon
+}
+
+export function removeUserImage(image: string) {
+    saveUserPersona()
+    const persona = DBState.db.personas[DBState.db.selectedPersona]
+    removePersonaImage(persona, image)
+    DBState.db.userIcon = persona.icon
 }
 
 export function saveUserPersona() {
@@ -53,10 +65,11 @@ interface PersonaCard {
     note?: string
 }
 
-export async function exportUserPersona(personaIndex?: number) {
+export async function exportUserPersona(personaIndex?: number, image?: string) {
     let db = getDatabase({ snapshot: true })
     const persona = personaIndex === undefined
         ? {
+            ...db.personas[db.selectedPersona],
             name: db.username,
             personaPrompt: db.personaPrompt,
             note: db.userNote,
@@ -68,8 +81,9 @@ export async function exportUserPersona(personaIndex?: number) {
         return
     }
 
+    const exportImage = getPersonaExportImage(persona, image)
     let img: Uint8Array
-    if (!persona.icon) {
+    if (!exportImage) {
         const canvas = document.createElement('canvas')
         canvas.width = 256
         canvas.height = 256
@@ -80,7 +94,7 @@ export async function exportUserPersona(personaIndex?: number) {
         const base64 = dataUrl.split(',')[1]
         img = new Uint8Array(Buffer.from(base64, 'base64'))
     } else {
-        img = await readImage(persona.icon)
+        img = await readImage(exportImage)
     }
 
     let card: PersonaCard = safeStructuredClone({

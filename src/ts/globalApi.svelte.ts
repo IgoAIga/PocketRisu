@@ -7,6 +7,8 @@ import { setDatabase, type Database, defaultSdDataFunc, getDatabase, appVer, nod
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, bodyIntercepterStore, claimLoadingOverlay, chatDeselected } from "./stores.svelte";
 import { recordDbTransferSize } from "./transferSize";
+import { doingChat } from './process/generationState';
+import { canBrowseServerJob } from './process/request/backgroundBrowsing';
 import { newSaveTiming, recordSaveSample, type SaveOutcome, type SaveTiming } from "./storage/saveMetrics";
 import { loadPlugins } from "./plugins/plugins.svelte";
 import { alertConfirm, alertConfirmMulti, alertError, alertMd, alertNormalWait, alertSelect, alertTOS, waitAlert, notifySuccess, notifyError, notifyInfo } from "./alert";
@@ -2131,6 +2133,7 @@ export function getUncleanables(db: Database, uptype: 'basename' | 'pure' = 'bas
     if (db.personas) {
         db.personas.map((v) => {
             addUncleanable(v.icon);
+            v.profileImages?.forEach(addUncleanable);
             // Legacy field: personas imported from character cards in older
             // versions kept an `image` alongside `icon`. Nothing reads it today,
             // but it is a live asset reference — omitting it here deleted the
@@ -2196,6 +2199,10 @@ export function replaceDbResources(db: Database, replacer: { [key: string]: stri
 
     db.customBackground = replaceData(db.customBackground);
     db.userIcon = replaceData(db.userIcon);
+    for (const persona of db.personas ?? []) {
+        persona.icon = replaceData(persona.icon);
+        if (persona.profileImages) persona.profileImages = persona.profileImages.map(replaceData);
+    }
     db.messageSound = replaceData(db.messageSound);
     db.translateSound = replaceData(db.translateSound);
     if (db.customSounds) {
@@ -3381,6 +3388,7 @@ export function foldChatToMessage(targetMessageIdOrIndex: string | number) {
 }
 
 export function changeChatTo(IdOrIndex: string | number) {
+    if (get(doingChat) && !canBrowseServerJob()) return
     let index = -1
     if (typeof IdOrIndex === 'number') {
         index = IdOrIndex

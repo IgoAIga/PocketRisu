@@ -33,6 +33,10 @@ import { forageStorage, readImage, resolvePrioritizedAssetManifestNames } from "
 import { pluginV2 } from "../plugins/plugins.svelte";
 import { abortGeneration, chatGenKey, chatProcessStage, endGeneration, isChatGenerating, onDatabaseRebased, registerAbort, setGenerationStage, startGeneration } from "./generationState";
 import { clearPendingSend, registerPendingSend } from "./request/pendingSends";
+import { canBrowseServerJob, hasBrowsableJob, lockJobPostprocessing, saveThenClaimJob, waitForOriginChat } from './request/backgroundBrowsing';
+import { saveChatToServer } from '../storage/chatStorage';
+import { beginOutputLifecycle } from './outputLifecycle';
+import { outputRecoveryCheckpoint } from './request/outputRecoveryApi';
 
 export interface OpenAIChat{
     role: 'system'|'user'|'assistant'|'function'
@@ -238,6 +242,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     // already generating. Keyed by the real chat id (chat.id); legacy chats
     // without an id share one fallback key. See generationState.ts.
     const guardChar = DBState.db.characters[get(selectedCharID)]
+    // Browsing is allowed; concurrent live pipelines still share module state.
+    if (canBrowseServerJob()) return false
     const realChatId = guardChar?.chats?.[guardChar.chatPage]?.id
     const genKey = chatGenKey(realChatId)
 
@@ -1586,11 +1592,13 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         return false
     }
 
+    const backgroundBrowsing = DBState.db.nodeOnlyServerSideRequests === true
     const req = await requestChatData({
         formated: formated,
         biasString: biases,
         currentChar: currentChar,
-        useStreaming: true,
+        useStreaming: !backgroundBrowsing,
+        backgroundBrowsing,
         isGroupChat: false,
         bias: {},
         continue: arg.continue,
@@ -1602,6 +1610,18 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         rememberToolUsage: DBState.db.rememberToolUsage,
         generationInfo,
     }, 'model', abortSignal)
+
+    if (hasBrowsableJob(generationId)) {
+        const ready = await waitForOriginChat(() => {
+            const active = DBState.db.characters[get(selectedCharID)]
+            return active?.chaId === nowChatroom.chaId && active?.chats?.[active.chatPage]?.id === realChatId
+        }, abortSignal)
+        lockJobPostprocessing(generationId)
+        if (!ready) return false
+        // Sidebar sorting may have changed array indexes while browsing.
+        selectedChar = get(selectedCharID)
+        selectedChat = DBState.db.characters[selectedChar].chatPage
+    }
 
     console.log(req)
     if(req.model){
@@ -1630,7 +1650,12 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         if (realChatId) clearPendingSend(realChatId)
         return false
     }
-    else if(req.type === 'streaming'){
+    const outputLifecycle = beginOutputLifecycle(generationId, realChatId, nowChatroom.name, DBState.db.showRequestStatus !== false, req.type === 'streaming')
+    try {
+    if (hasBrowsableJob(generationId) && realChatId) {
+        await outputRecoveryCheckpoint({ chaId: nowChatroom.chaId, chatId: realChatId, generationId }, { liveStart: true })
+    }
+    if(req.type === 'streaming'){
         const reader = req.result.getReader()
         let msgIndex = DBState.db.characters[selectedChar].chats[selectedChat].message.length
         let prefix = ''
@@ -1783,6 +1808,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 // A user Stop still post-processes the partial reply as before;
                 // only skip when the target message no longer exists (the
                 // character was deactivated elsewhere during a rebase).
+                outputLifecycle.processing()
                 if(deferStreamingPostProcessing && receivedStreamingResult && DBState.db.characters[selectedChar]?.chats?.[selectedChat]?.message?.[msgIndex]){
                     let result2 = await processScriptFull(nowChatroom, reformatContent(prefix + result), 'editoutput', msgIndex)
                     DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex].data = result2.data
@@ -1925,6 +1951,32 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             outputMessageIndex = findMessageIndexByChatId(currentChat, outputMessageId)
             await runChatOutputListeners(currentChar, currentChat, selectedChar, selectedChat, outputMessageIndex)
         }
+    }
+
+    outputLifecycle.saving()
+    const persistOutput = async () => {
+        const owner = DBState.db.characters.find(c => c.chaId === nowChatroom.chaId)
+        const index = owner?.chats.findIndex(c => c.id === realChatId) ?? -1
+        if (!owner || index < 0 || !realChatId) throw new Error('Origin chat missing before response save')
+        const completed = owner.chats[index].message.find(m => m.generationInfo?.generationId === generationId)
+        if (completed?.generationInfo && hasBrowsableJob(generationId)) {
+            // A missed job claim must never restore raw text over completed hooks.
+            completed.generationInfo.outputRecovery = { next: 6, state: 'done', jobId: generationId }
+        }
+        await saveChatToServer(owner.chaId, index, realChatId, owner.chats[index])
+        if (completed?.generationInfo?.outputRecovery) {
+            await outputRecoveryCheckpoint({ chaId: owner.chaId, chatId: realChatId, generationId })
+        }
+    }
+    if (hasBrowsableJob(generationId)) {
+        await saveThenClaimJob(generationId, persistOutput)
+    } else if ((globalThis as any).__NODE__) {
+        // Classic requests also need a durable output boundary after module hooks.
+        await persistOutput()
+    }
+    outputLifecycle.saved()
+    } finally {
+        outputLifecycle.finish(abortSignal.aborted)
     }
 
     let needsAutoContinue = false

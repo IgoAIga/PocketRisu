@@ -1,4 +1,5 @@
 <script lang="ts">
+    import ChatMemo from "./ChatMemo.svelte";
     import { getActiveHypaV3Preset } from "src/ts/process/memory/memoryPresets";
 
     import Suggestion from './Suggestion.svelte';
@@ -919,7 +920,7 @@ import { isMobile } from 'src/ts/platform'
 
 
 
-<div class="w-full h-full relative" style={customStyle}>
+<div class="w-full h-full relative flex flex-col" style={customStyle}>
     
     {#if DBState.db.nodeOnlyScrollButtonType !== 'off' && currentChat.length > 0}
         <div
@@ -1021,6 +1022,14 @@ import { isMobile } from 'src/ts/platform'
             <span>{language.selectChatToView}</span>
         </div>
     {:else}
+        {#if currentCharacter?.chats[currentCharacter.chatPage] && !currentCharacter.chats[currentCharacter.chatPage]._placeholder}
+            {#key currentCharacter.chats[currentCharacter.chatPage]}
+                <div class="flex shrink-0 justify-end items-center gap-2 px-3 py-1">
+                    <ChatMemo chat={currentCharacter.chats[currentCharacter.chatPage]} />
+                    <span class="truncate text-xs text-textcolor2">{activePersonaName}</span>
+                </div>
+            {/key}
+        {/if}
         {#snippet composerCluster()}
             <div
                     class="{DBState.db.fixedChatTextarea ? 'sticky pt-2 pb-2 right-0 bottom-0 bg-bgcolor' : 'mt-2 mb-2'} w-full"
@@ -1320,7 +1329,7 @@ import { isMobile } from 'src/ts/platform'
              gesture to the viewport; mobile Chrome then collapses its URL bar, the visual viewport
              resizes, and the sticky composer inside this col-reverse scroller gets misanchored
              (bar floats up with a gap below). PWA/standalone has no URL bar, hence unaffected. -->
-        <div class="h-full w-full flex flex-col-reverse overflow-y-auto overscroll-y-contain relative default-chat-screen"
+        <div class="min-h-0 flex-1 w-full flex flex-col-reverse overflow-y-auto overscroll-y-contain relative default-chat-screen"
             class:nodeonly-standard={DBState.db.theme === ''}
             class:no-chat-width-wide={DBState.db.theme === '' && DBState.db.nodeOnlyStandardChatWidth === 'wide'}
             class:no-chat-width-full={DBState.db.theme === '' && DBState.db.nodeOnlyStandardChatWidth === 'full'}

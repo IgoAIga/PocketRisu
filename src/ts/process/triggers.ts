@@ -1053,6 +1053,9 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
     displayMode?: boolean
     displayData?: string
     tempVars?: Record<string, string>
+    includeModuleIds?: string[]
+    excludeModuleIds?: string[]
+    strictErrors?: boolean
 }){
     arg.recursiveCount ??= 0
     char = arg.displayMode ? char : safeStructuredClone(char)
@@ -1221,6 +1224,8 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
     
     
     for(const trigger of triggers){
+        if (arg.includeModuleIds && (!trigger.moduleId || !arg.includeModuleIds.includes(trigger.moduleId))) continue
+        if (trigger.moduleId && arg.excludeModuleIds?.includes(trigger.moduleId)) continue
         let tempVars:Record<string, number> = {}
 
         if(trigger.effect[0]?.type === 'triggercode' || trigger.effect[0]?.type === 'triggerlua'){
@@ -1554,6 +1559,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                         char: char,
                         chat: chat,
                         moduleId: trigger.moduleId,
+                        strictErrors: arg.strictErrors,
                     })
 
                     if(triggerCodeResult.stopSending){

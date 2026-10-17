@@ -60,6 +60,7 @@ interface requestDataArgument{
     PresensePenalty?: number
     frequencyPenalty?: number,
     useStreaming?:boolean
+    backgroundBrowsing?:boolean
     isGroupChat?:boolean
     useEmotion?:boolean
     continue?:boolean
@@ -650,6 +651,9 @@ function toLogUsage(usage: AdapterUsage | undefined): RequestLogUsage | undefine
 // does not declare the 'streaming' capability, or when the caller opted out
 // (arg.useStreaming === false, e.g. aux/summarization requests).
 function resolvePresetStreaming(preset: ModelPreset, arg: RequestDataArgumentExtended): boolean {
+    // Server-side main generations are buffered regardless of which preset was
+    // selected. No special per-character preset or streaming toggle is needed.
+    if (getDatabase().nodeOnlyServerSideRequests === true && arg.realChatId && !arg.previewBody) return false
     if (arg.forceStreaming) return true
     const caps = preset.profileSnapshot.capabilities
     const supportsStreaming = !caps || caps.includes('streaming')
@@ -770,6 +774,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     const transportFetch = useServerJob
         ? makeJobFetch({
             realChatId: arg.realChatId ?? genId,
+            backgroundBrowsing: !!arg.realChatId,
             generationId: genId,
             adapterKind: kind,
             model: wireModel,

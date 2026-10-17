@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('src/ts/globalApi.svelte', () => ({
-    forageStorage: { createAuth: async () => 'test-auth' },
+    forageStorage: { createAuth: async () => 'test-auth', getSessionId: async () => 'test-session' },
 }))
 vi.mock('src/ts/storage/database.svelte', () => ({
     getDatabase: () => mocks.db,
@@ -83,6 +83,8 @@ const OPENAI_SSE =
 // --- fetch harness ----------------------------------------------------------
 
 interface ServerBehavior {
+    liveOutputAttempted?: boolean
+    checkpointFails?: boolean
     unclaimed?: any[]
     active?: any[]
     /** GET /api/pending-sends payload (default: none). */
@@ -103,6 +105,11 @@ function setupServer(behavior: ServerBehavior) {
         const url = String(input)
         const method = init?.method ?? 'GET'
         calls.push({ url, method })
+        if (url === '/api/output-recovery-checkpoint') {
+            const body = JSON.parse(String(init?.body))
+            if (body.checkLive) return Response.json({ attempted: behavior.liveOutputAttempted ?? false })
+            return Response.json({ success: !behavior.checkpointFails }, { status: behavior.checkpointFails ? 503 : 200 })
+        }
         if (url === '/api/model-jobs?unclaimed=1') {
             return new Response(JSON.stringify({ jobs: behavior.unclaimed ?? [] }), { status: 200 })
         }
@@ -256,6 +263,7 @@ describe('recoverTerminalJob', () => {
             inputTokens: 1234,
             outputTokens: 512,
             maxContext: 32768,
+            outputRecovery: { next: 0, state: 'pending', jobId: 'job-1' },
         })
     })
 
@@ -290,6 +298,39 @@ describe('recoverTerminalJob', () => {
         expect(chat.message).toHaveLength(1)
         expect(chat.message[0].data).toBe('Hello, and then some more') // recovered 'Hello' is shorter
         expect(claims()).toEqual(['/api/model-jobs/job-1/claim'])
+    })
+
+    test.each(['pending', 'running', 'done', 'blocked'])('preserves shorter checkpointed %s output on duplicate discovery', async state => {
+        const { recovery } = await loadModules()
+        const checkpoint = { next: 3, state, jobId: 'job-1' }
+        const chat = makeChat({ message: [{ role: 'char', data: 'Hi', generationInfo: { generationId: 'gen-1', outputRecovery: checkpoint } }] })
+        mocks.db.characters = [makeChar(chat)]
+        setupServer({ journals: { 'job-1': OPENAI_SSE } })
+        await recovery.recoverTerminalJob(makeJob() as any)
+        expect(chat.message[0].data).toBe('Hi')
+        expect(chat.message[0].generationInfo.outputRecovery).toEqual(checkpoint)
+    })
+
+    test('blocks hook replay after live processing began, preserving partial processed text', async () => {
+        vi.stubGlobal('__NODE__', true)
+        const { recovery } = await loadModules()
+        const chat = makeChat({ message: [{ role: 'char', data: 'Hi', generationInfo: { generationId: 'gen-1' } }] })
+        mocks.db.characters = [makeChar(chat)]
+        setupServer({ journals: { 'job-1': OPENAI_SSE }, liveOutputAttempted: true })
+        await recovery.recoverTerminalJob(makeJob() as any)
+        expect(chat.message[0].data).toBe('Hi')
+        expect(chat.message[0].generationInfo.outputRecovery.state).toBe('blocked')
+    })
+
+    test('does not claim a restored response when its disk checkpoint fails', async () => {
+        vi.stubGlobal('__NODE__', true)
+        const { recovery } = await loadModules()
+        const chat = makeChat()
+        mocks.db.characters = [makeChar(chat)]
+        const { claims } = setupServer({ journals: { 'job-1': OPENAI_SSE }, checkpointFails: true })
+        await recovery.recoverTerminalJob(makeJob() as any)
+        expect(chat.message[0].generationInfo.outputRecovery.state).toBe('pending')
+        expect(claims()).toEqual([])
     })
 
     test('fills a partial message left by a client that died mid-stream', async () => {

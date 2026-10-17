@@ -2,6 +2,70 @@ import { LLMFlags, LLMFormat, LLMProvider, LLMTokenizer, type LLMModel } from '.
 
 export const GoogleModels: LLMModel[] = [
 
+    {
+        name: "Gemini 4 Argon",
+        id: 'gemini-4-argon',
+        provider: LLMProvider.GoogleCloud,
+        format: LLMFormat.GoogleCloud,
+        flags: [LLMFlags.hasImageInput, LLMFlags.poolSupported, LLMFlags.hasAudioInput, LLMFlags.hasVideoInput, LLMFlags.hasStreaming, LLMFlags.requiresAlternateRole, LLMFlags.geminiThinking, LLMFlags.geminiThinkingNoMinimal, LLMFlags.hasFirstSystemPrompt],
+        parameters: ['reasoning_effort'],
+        tokenizer: LLMTokenizer.GoogleCloud,
+        recommended: true
+    },
+
+    // Keep the recent Flash models available in the legacy selector as well.
+    {
+        name: "Gemini Flash 3.8",
+        id: 'gemini-3.8-flash',
+        provider: LLMProvider.GoogleCloud,
+        format: LLMFormat.GoogleCloud,
+        flags: [LLMFlags.hasImageInput, LLMFlags.poolSupported, LLMFlags.hasAudioInput, LLMFlags.hasVideoInput, LLMFlags.hasStreaming, LLMFlags.requiresAlternateRole, LLMFlags.geminiThinking, LLMFlags.geminiThinkingNoMinimal, LLMFlags.hasFirstSystemPrompt],
+        parameters: ['reasoning_effort'],
+        tokenizer: LLMTokenizer.GoogleCloud,
+        recommended: true
+    },
+
+    {
+        name: "Gemini Flash 3.7",
+        id: 'gemini-3.7-flash',
+        provider: LLMProvider.GoogleCloud,
+        format: LLMFormat.GoogleCloud,
+        flags: [LLMFlags.hasImageInput, LLMFlags.poolSupported, LLMFlags.hasAudioInput, LLMFlags.hasVideoInput, LLMFlags.hasStreaming, LLMFlags.requiresAlternateRole, LLMFlags.geminiThinking, LLMFlags.geminiThinkingNoMinimal, LLMFlags.hasFirstSystemPrompt],
+        parameters: ['reasoning_effort'],
+        tokenizer: LLMTokenizer.GoogleCloud,
+        recommended: true
+    },
+    {
+        name: "Gemini Flash 3.6",
+        id: 'gemini-3.6-flash',
+        provider: LLMProvider.GoogleCloud,
+        format: LLMFormat.GoogleCloud,
+        flags: [LLMFlags.hasImageInput, LLMFlags.poolSupported, LLMFlags.hasAudioInput, LLMFlags.hasVideoInput, LLMFlags.hasStreaming, LLMFlags.requiresAlternateRole, LLMFlags.geminiThinking, LLMFlags.hasFirstSystemPrompt],
+        parameters: ['reasoning_effort', 'temperature', 'top_k', 'top_p'],
+        tokenizer: LLMTokenizer.GoogleCloud,
+        recommended: true
+    },
+    {
+        name: "Gemini Flash 3.5",
+        id: 'gemini-3.5-flash',
+        provider: LLMProvider.GoogleCloud,
+        format: LLMFormat.GoogleCloud,
+        flags: [LLMFlags.hasImageInput, LLMFlags.poolSupported, LLMFlags.hasAudioInput, LLMFlags.hasVideoInput, LLMFlags.hasStreaming, LLMFlags.requiresAlternateRole, LLMFlags.geminiThinking, LLMFlags.hasFirstSystemPrompt],
+        parameters: ['reasoning_effort', 'temperature', 'top_k', 'top_p'],
+        tokenizer: LLMTokenizer.GoogleCloud,
+        recommended: true
+    },
+    {
+        name: "Gemini Flash Lite 3.5",
+        id: 'gemini-3.5-flash-lite',
+        provider: LLMProvider.GoogleCloud,
+        format: LLMFormat.GoogleCloud,
+        flags: [LLMFlags.hasImageInput, LLMFlags.poolSupported, LLMFlags.hasAudioInput, LLMFlags.hasVideoInput, LLMFlags.hasStreaming, LLMFlags.requiresAlternateRole, LLMFlags.geminiThinking, LLMFlags.hasFirstSystemPrompt],
+        parameters: ['reasoning_effort', 'temperature', 'top_k', 'top_p'],
+        tokenizer: LLMTokenizer.GoogleCloud,
+        recommended: true
+    },
+
     // ===== Gemini 3.1 Series (2026) =====
     {
         name: "Gemini Pro 3.1 Preview",

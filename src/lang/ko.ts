@@ -1,6 +1,22 @@
 import { helpKo } from "./help.ko";
 
 export const languageKorean = {
+    "chatMemoTitle": "메모",
+    "chatMemoCharacters": "자",
+    "chatMemoLimitHint": "공백·줄바꿈을 포함해 최대 10,000자까지 입력할 수 있습니다.",
+    "chatMemoLimitRejected": "10,000자를 초과하는 입력입니다. 기존 메모는 유지했습니다. 내용을 줄인 뒤 다시 입력해 주세요.",
+    "chatMemoLegacyLimit": "기존 메모가 10,000자를 초과합니다. 내용은 삭제하지 않았습니다. 내용을 줄인 뒤 추가해 주세요.",
+    "personaImagesTitle": "프로필 이미지",
+    "personaImagesAdd": "이미지 추가",
+    "personaImagesHint": "이 페르소나에 사용할 이미지를 선택하세요. 아래에서 현재 이미지를 바꾸지 않고 원하는 이미지로 PNG 페르소나 카드를 내보낼 수도 있습니다.",
+    "personaImagesUse": "이 이미지 사용",
+    "personaImagesActive": "사용 중",
+    "personaImagesExport": "이 이미지로 내보내기",
+    "personaImagesRemoveConfirm": "이 페르소나에서 이미지를 제거할까요? 사용 중인 이미지라면 다른 등록 이미지가 선택됩니다.",
+    "chatMemoClose": "닫기",
+    "chatMemoHasContent": "저장된 메모 있음",
+    "chatMemoHint": "이 채팅에 자동 저장됩니다. AI에게는 전달되지 않습니다.",
+    "chatMemoPlaceholder": "기억할 인물, 중요한 사건, 다음에 할 일 등을 적어두세요.",
   formating: {
     main: "메인 프롬프트",
     jailbreak: "탈옥 프롬프트",
@@ -2667,6 +2683,11 @@ export const languageKorean = {
 
   showRequestStatus: "요청 상태 표시",
   requestStatus: {
+    postprocessing: "출력·모듈 후처리 중…",
+    saving: "출력 저장 중…",
+    received: "응답 수신",
+    outputSaved: "출력 저장 완료",
+    kindOutput: "후처리",
     connecting: "요청 중…",
     thinking: "사고 중…",
     responding: "응답 중…",

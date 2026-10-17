@@ -8,6 +8,8 @@ import { writable, get } from "svelte/store"
 // Non-persistent, memory only: never touches db/localStorage/.bin.
 
 export type RequestPhase =
+    | 'postprocessing'
+    | 'saving'
     | 'connecting'   // request sent, awaiting first byte
     | 'thinking'     // receiving reasoning
     | 'responding'   // receiving answer body
@@ -21,7 +23,7 @@ export type RequestPhase =
 // pipeline's ModelModeExtended: model→main, translate→translate, memory→memory,
 // emotion→emotion, submodel/otherAx→sub. The renderer maps these to localized
 // chip labels (메인 / 번역 / 메모리 / 감정 / 보조).
-export type RequestKind = 'main' | 'translate' | 'memory' | 'emotion' | 'sub'
+export type RequestKind = 'main' | 'translate' | 'memory' | 'emotion' | 'sub' | 'output'
 
 // A phase is terminal when the request has finished one way or another; the
 // renderer uses this to decide dismissal/retention.

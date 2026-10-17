@@ -1,4 +1,5 @@
 import { derived, get, writable, type Readable } from "svelte/store"
+import { forgetBrowsableJob } from './request/backgroundBrowsing'
 
 // Per-chat generation state, keyed by the REAL chat id (chat.id) — not the
 // per-request generationId that flows through request args as `chatId` (see
@@ -103,6 +104,7 @@ export function endGeneration(chatKey: string, opts?: { keepPendingAbort?: boole
     if (!opts?.keepPendingAbort) {
         pendingAborts.delete(chatKey)
     }
+    if (entry) forgetBrowsableJob(entry.generationId)
     rebaseListeners.delete(chatKey)
     generationStates.update((m) => {
         if (!m.has(chatKey)) return m

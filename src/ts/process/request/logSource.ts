@@ -6,7 +6,7 @@ export function toLogSource(mode?: ModelModeExtended): RequestLogSource {
     return toRequestKind(mode)
 }
 
-export function toRequestKind(mode?: ModelModeExtended): RequestKind {
+export function toRequestKind(mode?: ModelModeExtended): Exclude<RequestKind, 'output'> {
     switch (mode) {
         case 'translate': return 'translate'
         case 'memory': return 'memory'

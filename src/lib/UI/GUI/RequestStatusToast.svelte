@@ -16,6 +16,7 @@
     import { RotateCwIcon, XIcon } from '@lucide/svelte'
 
     let { id }: { id: string } = $props()
+    let expanded = $state(false)
 
     const entry = $derived($requestStatuses.get(id))
     const rs = language.requestStatus
@@ -28,6 +29,8 @@
     })
 
     const PHASE_LABEL: Record<RequestPhase, string> = {
+        postprocessing: rs?.postprocessing ?? 'Processing output/modules…',
+        saving: rs?.saving ?? 'Saving output…',
         connecting: rs?.connecting ?? 'Connecting…',
         thinking:   rs?.thinking ?? 'Thinking…',
         responding: rs?.responding ?? 'Responding…',
@@ -39,6 +42,7 @@
         aborted:    rs?.aborted ?? 'Cancelled',
     }
     const KIND_LABEL: Record<RequestKind, string> = {
+        output: rs?.kindOutput ?? 'Output',
         main:      rs?.kindMain ?? 'Main',
         translate: rs?.kindTranslate ?? 'Translate',
         memory:    rs?.kindMemory ?? 'Memory',
@@ -117,7 +121,7 @@
                     <RotateCwIcon size={14} class="text-primary rs-spin shrink-0" />
                 {/if}
 
-                <span class="rs-phase {phaseColor(entry.phase)}">{PHASE_LABEL[entry.phase]}</span>
+                <button type="button" class="rs-phase {phaseColor(entry.phase)}" aria-expanded={expanded} title={detail} onclick={() => expanded = !expanded}>{entry.phase === 'done' && entry.kind === 'main' ? rs.received : entry.phase === 'done' && entry.kind === 'output' ? rs.outputSaved : PHASE_LABEL[entry.phase]}</button>
                 <span class="rs-chip">{KIND_LABEL[entry.kind]}</span>
                 <span class="rs-elapsed">{elapsedStr(entry)}</span>
 
@@ -125,18 +129,18 @@
                     <span class="rs-retry">#{entry.retryAttempt}</span>
                 {/if}
                 <span class="rs-actions">
-                    {#if right}<span class="rs-right">{right.label} <b>{right.value}</b></span>{/if}
+                    {#if right && expanded}<span class="rs-right">{right.label} <b>{right.value}</b></span>{/if}
                     <button class="rs-close" type="button" aria-label={language.close ?? 'Close'} onclick={dismiss}><XIcon size={14} /></button>
                 </span>
             </div>
 
             {#if entry.error}
                 <div class="rs-detail rs-error truncate">{entry.error} · {entry.label}</div>
-            {:else if detail}
+            {:else if detail && expanded}
                 <div class="rs-detail truncate">{detail}</div>
             {/if}
 
-            {#each entry.badges as badge (badge.key)}
+            {#each (expanded ? entry.badges : []) as badge (badge.key)}
                 <div class="rs-badge-row"
                      class:rs-badge-success={badge.tone === 'success'}
                      class:rs-badge-warn={badge.tone === 'warn'}>
@@ -156,7 +160,8 @@
         border: 1px solid var(--risu-theme-darkborderc);
         border-radius: 0.5rem;
         overflow: hidden;
-        font-size: 0.875rem;
+        font-size: 12px;
+        pointer-events: auto;
     }
     /* left accent bar via left border */
     .rs-card { border-left-width: 4px; }
@@ -165,8 +170,8 @@
     .rs-accent-danger  { border-left-color: var(--risu-theme-draculared); }
     .rs-accent-muted   { border-left-color: var(--risu-theme-textcolor2); }
 
-    .rs-body { flex: 1; min-width: 0; padding: 10px 13px; }
-    .rs-row1 { display: flex; align-items: center; gap: 8px; }
+    .rs-body { flex: 1; min-width: 0; padding: 3px 7px; }
+    .rs-row1 { display: flex; align-items: center; gap: 5px; }
 
     .rs-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
         background: var(--risu-theme-primary); }
@@ -181,7 +186,7 @@
     :global(.rs-spin) { animation: rs-spin 1s linear infinite; }
     @keyframes rs-spin { to { transform: rotate(360deg); } }
 
-    .rs-phase { font-weight: 600; }
+    .rs-phase { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .rs-chip {
         font-size: 11px; padding: 1px 7px; border-radius: 999px; flex-shrink: 0;
         background: var(--risu-theme-selected); color: var(--risu-theme-textcolor);

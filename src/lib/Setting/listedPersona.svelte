@@ -91,8 +91,9 @@
                 {/if}
                 {#each open ? visible : [] as i}
                     {@const persona = DBState.db.personas[i]}
+                    <div class="border-t border-darkborderc min-w-0">
                     <button onclick={() => select(i)}
-                        class="flex items-center gap-2 text-textcolor border-t border-darkborderc p-2 pl-7 cursor-pointer hover:bg-selected/30"
+                        class="flex w-full min-w-0 items-start gap-2 text-textcolor p-2 pl-7 cursor-pointer hover:bg-selected/30"
                         class:bg-selected={i === highlightIndex}>
                         <div class="h-7 w-7 shrink-0 overflow-hidden rounded-md bg-textcolor2">
                             {#if persona.icon}
@@ -101,13 +102,14 @@
                                 {/await}
                             {/if}
                         </div>
-                        <span class="overflow-x-auto whitespace-nowrap w-full text-left">
-                            <span class="font-medium">{persona.name}</span>
+                        <span class="min-w-0 flex-1 whitespace-normal text-left">
+                            <span class="block font-medium">{persona.name}</span>
                             {#if persona.note}
-                                <span class="opacity-75"> / {persona.note}</span>
+                                <span class="block text-xs text-textcolor2 whitespace-pre-wrap">{persona.note}</span>
                             {/if}
                         </span>
                     </button>
+                    </div>
                 {/each}
             {/if}
         {/each}

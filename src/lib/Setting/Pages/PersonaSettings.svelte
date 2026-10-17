@@ -1,4 +1,5 @@
 <script lang="ts">
+    import PersonaImages from "../PersonaImages.svelte";
     import SettingFieldLabel from "src/lib/Setting/Wrappers/SettingFieldLabel.svelte";
     import { language } from "src/lang";
     import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
@@ -10,7 +11,7 @@
     import { HardDriveUploadIcon, PlusIcon, StarIcon } from "@lucide/svelte";
     import { alertConfirm } from "src/ts/alert";
     import { getCharImage } from "src/ts/characters";
-    import { changeUserPersona, exportUserPersona, importUserPersona, saveUserPersona, selectUserImg } from "src/ts/persona";
+    import { changeUserPersona, exportUserPersona, importUserPersona, saveUserPersona, selectUserImg, useUserImage, removeUserImage } from "src/ts/persona";
     import { onDestroy } from "svelte";
     import { DBState } from 'src/ts/stores.svelte';
     import { requestImmediateSave } from "src/ts/globalApi.svelte";
@@ -188,6 +189,7 @@
                             onCheckedChange={(v) => DBState.db.personas[DBState.db.selectedPersona].largePortrait = v}
                         />
                     </div>
+                    <PersonaImages persona={DBState.db.personas[DBState.db.selectedPersona]} onadd={selectUserImg} onselect={useUserImage} onexport={(image) => exportUserPersona(undefined, image)} onremove={removeUserImage} />
                     <div class="flex gap-2 max-w-full flex-wrap items-center pt-3 border-t border-darkborderc">
                         <ShButton size="sm" variant="outline" onclick={() => exportPersona(index)}>{language.export}</ShButton>
                         <ShButton size="sm" variant="outline" onclick={() => {

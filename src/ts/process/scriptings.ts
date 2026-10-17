@@ -1,4 +1,5 @@
 import { asBuffer } from 'src/ts/util';
+import { addLog } from '../log';
 import { getChatVar, getGlobalChatVar, setChatVar } from "../parser/chatVar.svelte";
 import { hasher, type simpleCharacterArgument, risuChatParser } from "../parser/parser.svelte";
 import { LuaEngine, LuaFactory } from "wasmoon";
@@ -68,6 +69,7 @@ export async function runScripted(code:string, arg:{
     mode?: string,
     type?: 'lua'|'py',
     moduleId?: string
+    strictErrors?: boolean
 }){
     const type: 'lua'|'py' = arg.type ?? 'lua'
     const char = arg.char ?? getCurrentCharacter()
@@ -182,6 +184,7 @@ export async function runScripted(code:string, arg:{
                 const data = {
                     role: chat.role,
                     data: chat.data,
+                    chatId: chat.chatId ?? chat.generationInfo?.generationId ?? null,
                     time: chat.time ?? 0
                 }
                 return JSON.stringify(data)
@@ -204,6 +207,7 @@ export async function runScripted(code:string, arg:{
                 return JSON.stringify(chats.slice(start).map((v) => ({
                     role: v.role,
                     data: v.data,
+                    chatId: v.chatId ?? v.generationInfo?.generationId ?? null,
                     time: v.time ?? 0,
                 })))
             })
@@ -269,6 +273,7 @@ export async function runScripted(code:string, arg:{
                     return {
                         role: v.role,
                         data: v.data,
+                        chatId: v.chatId ?? v.generationInfo?.generationId ?? null,
                         time: v.time ?? 0
                     }
                 }))
@@ -407,6 +412,7 @@ export async function runScripted(code:string, arg:{
             })
 
             declareAPI('generateImage', async (id:string, value:string, negValue:string = '') => {
+                addLog({level:'info', source:'module-image', message:'Image request started', description:JSON.stringify({moduleId:ScriptingEngineState.moduleId,chatId:ScriptingEngineState.chat?.id,allowed:ScriptingLowLevelIds.has(id)})})
                 if(!ScriptingLowLevelIds.has(id)){
                     return
                 }
@@ -417,6 +423,7 @@ export async function runScripted(code:string, arg:{
                 const imgHTML = new Image()
                 imgHTML.src = gen
                 const inlay = await writeInlayImage(imgHTML)
+                addLog({level:'info',source:'module-image',message:'Image saved',description:JSON.stringify({moduleId:ScriptingEngineState.moduleId,chatId:ScriptingEngineState.chat?.id})})
                 return `{{inlay::${inlay}}}`
             })
 
@@ -1153,6 +1160,13 @@ export async function runScripted(code:string, arg:{
                 }
             } catch (error) {
                 console.error(error)
+                // Record the stage, not script bodies or chat contents.
+                addLog({ level: 'error', source: 'lua-hook', message: 'Lua hook failed', description: JSON.stringify({ mode, chatId: ScriptingEngineState.chat?.id, moduleId: ScriptingEngineState.moduleId }) })
+                if (arg.strictErrors) {
+                    ScriptingSafeIds.delete(accessKey)
+                    ScriptingLowLevelIds.delete(accessKey)
+                    throw new Error('Lua hook failed; output recovery requires review')
+                }
             }
         }
         if(ScriptingEngineState.type === 'py'){

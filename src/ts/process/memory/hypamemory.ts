@@ -39,6 +39,22 @@ export const localModels = {
 // Shared embedding vector cache across all HypaProcesser instances
 export const hypaVectorCache = new Map<string, memoryVector>();
 const hypaVectorCachePrefix = 'cache/hypa-vector/';
+const serverVectorKeys = new WeakMap<object, string>();
+
+export async function rankMemoryVectorsOnServer(query: VectorArray, vectors: memoryVector[]): Promise<{index: number; score: number}[] | null> {
+    if (!(globalThis as any).__NODE__ || !getDatabase().nodeOnlyServerSideRequests || !vectors.length) return null;
+    const keys = vectors.map(v => serverVectorKeys.get(v));
+    if (keys.some(k => !k)) return null;
+    try {
+        const { forageStorage } = await import('src/ts/globalApi.svelte');
+        const response = await fetch('/api/memory-rank', { method: 'POST', headers: { 'content-type': 'application/json', 'risu-auth': await forageStorage.createAuth() }, body: JSON.stringify({ query: Array.from(query), keys }) });
+        if (!response.ok) return null; // Old servers/cache misses keep the existing algorithm.
+        const { results } = await response.json();
+        if (!Array.isArray(results) || results.length !== vectors.length || new Set(results.map(r => r.index)).size !== vectors.length
+            || results.some(r => !Number.isInteger(r.index) || r.index < 0 || r.index >= vectors.length || !Number.isFinite(r.score))) return null;
+        return results;
+    } catch { return null; }
+}
 
 const MAX_ERROR_BODY_LENGTH = 300
 
@@ -66,6 +82,7 @@ export async function getPersistedHypaVector(cacheKey: string): Promise<memoryVe
         return undefined
     }
     hypaVectorCache.set(cacheKey, payload.value)
+    serverVectorKeys.set(payload.value, storageKey)
     return payload.value
 }
 
@@ -90,6 +107,7 @@ export async function getPersistedHypaVectors(cacheKeys: string[]): Promise<(mem
         const payload = rows.get(storageKeys[j])
         if (!payload || payload.key !== cacheKeys[i]) return
         hypaVectorCache.set(cacheKeys[i], payload.value)
+        serverVectorKeys.set(payload.value, storageKeys[j])
         result[i] = payload.value
     })
     return result
@@ -102,6 +120,8 @@ export async function setPersistedHypaVector(cacheKey: string, value: memoryVect
     }
     hypaVectorCache.set(cacheKey, normalizedValue)
     const storageKey = await makeHashedStorageKey(hypaVectorCachePrefix, cacheKey)
+    serverVectorKeys.set(normalizedValue, storageKey)
+    serverVectorKeys.set(value, storageKey)
     await writePersistentJson(storageKey, {
         key: cacheKey,
         value: normalizedValue
@@ -276,10 +296,12 @@ export class HypaProcesser{
         return await this.similaritySearchVectorWithScore((await this.getEmbeds(query))[0],);
     }
 
-    private similaritySearchVectorWithScore(
+    private async similaritySearchVectorWithScore(
         query: VectorArray,
-      ): [string, number][] {
+      ): Promise<[string, number][]> {
           const memoryVectors = this.vectors
+          const serverResults = await rankMemoryVectorsOnServer(query, memoryVectors)
+          if (serverResults) return serverResults.map(r => [memoryVectors[r.index].content, r.score])
           const searches = memoryVectors
                 .map((vector, index) => ({
                     similarity: similarity(query, vector.embedding),

@@ -1,3 +1,4 @@
+import { legacyNativeFetch } from './legacyServerJob'
 import { fetchNative, textifyReadableStream } from "src/ts/globalApi.svelte"
 import { LLMFlags, LLMFormat, type LLMModel } from "src/ts/model/modellist"
 import { getDatabase, setDatabase } from "src/ts/storage/database.svelte"
@@ -333,6 +334,7 @@ export async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):
 
     if(arg.modelInfo.flags.includes(LLMFlags.geminiThinking)){
         para.push('thinking_tokens')
+        para.push('reasoning_effort')
     }
 
     para = para.filter((v) => {
@@ -348,7 +350,8 @@ export async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):
             'top_k': "topK",
             'presence_penalty': "presencePenalty",
             'frequency_penalty': "frequencyPenalty",
-            'thinking_tokens': "thinkingBudget"
+            'thinking_tokens': "thinkingBudget",
+            'reasoning_effort': "thinkingConfig.thinkingLevel"
         }, arg.mode, {
             ignoreTopKIfZero: true,
             modelId: arg.modelInfo.id
@@ -379,7 +382,19 @@ export async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):
 
         // Gemini 3 models use `thinking_level` (via thinkingConfig.thinkingLevel) instead of `thinking_budget`.
         // Keep UI/param name 'thinking_tokens' but translate it here for compatibility.
-        if (internalId && /^gemini-3-/.test(internalId)) {
+        if (body.generation_config.thinkingConfig) {
+            const config = body.generation_config.thinkingConfig
+            if (config.thinkingLevel === 'minimal' && arg.modelInfo.flags.includes(LLMFlags.geminiThinkingNoMinimal)) {
+                config.thinkingLevel = 'low'
+            }
+            config.includeThoughts = true
+        } else if (internalId === 'gemini-4-argon') {
+            // Argon accepts levels, not a token budget; use its documented default.
+            body.generation_config.thinkingConfig = {
+                thinkingLevel: 'medium',
+                includeThoughts: true,
+            }
+        } else if (internalId && /^gemini-3-/.test(internalId)) {
             const budgetNum = typeof thinkingBudget === 'number' ? thinkingBudget : Number(thinkingBudget)
 
             // Conservative mapping: keep levels coarse to avoid model-specific strict validation.
@@ -441,7 +456,7 @@ export async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):
     const isVertexGlobalOnlyModel = (modelId: string) => {
         // Gemini 3 preview models and the 3.5/3.6/3.7/3.8 Flash family are not served from the regions
         // selectable in settings (us-central1, us-west1); route them through the global endpoint.
-        return /^gemini-3-.*-preview$/.test(modelId) || /^gemini-3\.[5678]-flash/.test(modelId)
+        return modelId === 'gemini-4-argon' || /^gemini-3-.*-preview$/.test(modelId) || /^gemini-3\.[5678]-flash/.test(modelId)
     }
 
     async function generateToken(email:string,key:string){
@@ -715,7 +730,7 @@ async function requestGoogle(url:string, body:any, headers:{[key:string]:string}
         }
     }
 
-    const res = await fetchNative(url, {
+    const res = await legacyNativeFetch(arg, 'google-gemini', url, {
         headers: headers,
         body: JSON.stringify(body),
         method: 'POST',

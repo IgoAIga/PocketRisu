@@ -38,11 +38,9 @@ import type { AdapterChatStreamDelta, AdapterUsage } from 'src/ts/preset/adapter
 // rendering without transport changes — but rebuilding the live write loop
 // (index.svelte.ts) out-of-band is deliberately out of scope here.
 //
-// Recovered text is the RAW model output (reasoning-prefixed exactly like a
-// live run would have saved). Live-generation extras — editoutput scripts,
-// triggers, emotion detection, translate, TTS, auto-continue — are not
-// replayed: they are live-pipeline behavior, and re-running them out of band
-// could fire side effects on a chat the user is not even looking at.
+// Save RAW output first. Output hooks are checkpointed independently and run
+// only when the origin is selected (recoveredOutput.svelte.ts). TTS, automatic
+// continuation and emotion requests are not replayed on recovery.
 
 export interface ModelJobRecord {
     id: string
@@ -265,6 +263,16 @@ async function persistRecoveredChat(loc: LocatedChat, job: ModelJobRecord): Prom
         const chat = loc.char.chats[index]
         if (!chat || chat._placeholder) throw new Error('chat is a placeholder')
         await saveChatToServer(chaId, index, job.chatId, chat)
+        const checkpoint = chat.message.find(m => m.generationInfo?.generationId === job.generationId)?.generationInfo?.outputRecovery
+        if (checkpoint && (globalThis as any).__NODE__) {
+            const { forageStorage } = await import('src/ts/globalApi.svelte')
+            const response = await fetch('/api/output-recovery-checkpoint', {
+                method: 'POST',
+                headers: { ...await authHeader(), 'content-type': 'application/json', 'x-session-id': await forageStorage.getSessionId() },
+                body: JSON.stringify({ chaId, chatId: job.chatId, generationId: job.generationId }),
+            })
+            if (!response.ok) throw new Error(`Recovery disk checkpoint failed (${response.status})`)
+        }
         diag(`recover ${job.id.slice(0, 8)}: chat saved idx=${index}`)
         return true
     } catch (err) {
@@ -324,6 +332,7 @@ function insertRecoveredMessage(loc: LocatedChat, job: ModelJobRecord, text: str
         chatId: job.generationId ?? uuidv4(),
         generationInfo: recoveredGenerationInfo(job, usage),
     }
+    message.generationInfo!.outputRecovery = { next: 0, state: 'pending', jobId: job.id }
     if (loc.char.chaId) message.saying = loc.char.chaId
     loc.chat.message.push(message)
     bumpReload(loc)
@@ -501,6 +510,11 @@ export async function recoverTerminalJob(job: ModelJobRecord): Promise<void> {
     // design — the server never persists it, since it carries the provider
     // credential — so the entry holds the response and the outcome only.
     recordJobRecoveryLog(job, result)
+    let liveOutputAttempted = false
+    if (result.ok && job.generationId && (globalThis as any).__NODE__) {
+        const { outputRecoveryCheckpoint } = await import('./outputRecoveryApi')
+        liveOutputAttempted = !!(await outputRecoveryCheckpoint({ chaId: loc.char.chaId, chatId: job.chatId, generationId: job.generationId }, { checkLive: true })).attempted
+    }
     let mutated = false
     if (result.ok === true) {
         if (existingIdx === -1) {
@@ -510,7 +524,12 @@ export async function recoverTerminalJob(job: ModelJobRecord): Promise<void> {
         } else {
             const before = loc.chat.message[existingIdx]?.data?.length ?? 0
             const metadataChanged = mergeRecoveredGenerationInfo(loc.chat.message[existingIdx], job, result.usage)
-            const textChanged = fillPartialMessage(loc, existingIdx, result.text)
+            // Never replace checkpointed hook output with the longer raw journal.
+            const checkpoint = loc.chat.message[existingIdx]?.generationInfo?.outputRecovery
+            const textChanged = checkpoint || liveOutputAttempted ? false : fillPartialMessage(loc, existingIdx, result.text)
+            if (textChanged) {
+                loc.chat.message[existingIdx].generationInfo!.outputRecovery = { next: 0, state: 'pending', jobId: job.id }
+            }
             mutated = metadataChanged || textChanged
             const after = loc.chat.message[existingIdx]?.data?.length ?? 0
             // Independent read-back through a FRESH proxied lookup: proves the
@@ -528,6 +547,13 @@ export async function recoverTerminalJob(job: ModelJobRecord): Promise<void> {
     } else {
         diag(`recover ${job.id.slice(0, 8)}: journal decode failed, existingIdx=${existingIdx}`, result.error)
         if (existingIdx === -1) mutated = insertJobError(loc, job, result.error)
+    }
+    if (liveOutputAttempted) {
+        const message = loc.chat.message.find(m => m.generationInfo?.generationId === job.generationId)
+        if (message?.generationInfo && message.generationInfo.outputRecovery?.state !== 'done') {
+            message.generationInfo.outputRecovery = { next: 0, state: 'blocked', jobId: job.id }
+            mutated = true
+        }
     }
     if (needsSave(mutated, existingIdx) && !(await persistRecoveredChat(loc, job))) return
     await claimJob(job.id)
@@ -885,6 +911,7 @@ let triggersInstalled = false
 export function initModelJobRecovery(): void {
     if (triggersInstalled) return
     triggersInstalled = true
+    void import('./recoveredOutput.svelte').then(m => m.initRecoveredOutput())
     // Each real return grants a fresh retry budget: an earlier exhausted
     // backoff (network stayed down) must not mute the retries of a later,
     // unrelated return.

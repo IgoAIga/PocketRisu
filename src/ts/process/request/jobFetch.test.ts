@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { makeJobFetch, ModelJobBusyError, ModelJobConnectionLostError, type JobFetchOptions } from './jobFetch'
+import { canBrowseServerJob, forgetBrowsableJob, saveThenClaimJob } from './backgroundBrowsing'
 
 vi.mock('src/ts/globalApi.svelte', () => ({
     forageStorage: { createAuth: async () => 'test-auth' },
@@ -141,12 +142,39 @@ async function drain(res: Response): Promise<string> {
 }
 
 afterEach(() => {
+    forgetBrowsableJob('gen-1')
     vi.unstubAllGlobals()
 })
 
 // --- tests ------------------------------------------------------------------
 
 describe('makeJobFetch', () => {
+    test.each([true, false])('main streaming=%s keeps recovery journal until durable save without allowing navigation', async (streaming) => {
+        const { calls } = setupServer({ streamChunks: ['response'], job: { status: 'done' } })
+        const response = await makeJobFetch(makeOpts({ streaming, jobKind: 'main' }))('https://provider.test')
+        expect(canBrowseServerJob()).toBe(false)
+        expect(await drain(response)).toBe('response')
+        expect(callsFor(calls, '/api/model-jobs/job-1/claim', 'POST')).toHaveLength(0)
+        await expect(saveThenClaimJob('gen-1', async () => { throw Error('disk unavailable') })).rejects.toThrow('disk unavailable')
+        expect(callsFor(calls, '/api/model-jobs/job-1/claim', 'POST')).toHaveLength(0)
+        let finishSave!: () => void
+        const pending = saveThenClaimJob('gen-1', () => new Promise<void>(resolve => { finishSave = resolve }))
+        expect(callsFor(calls, '/api/model-jobs/job-1/claim', 'POST')).toHaveLength(0)
+        finishSave()
+        await pending
+        expect(callsFor(calls, '/api/model-jobs/job-1/claim', 'POST')).toHaveLength(1)
+    })
+    test('buffered browsing keeps the journal until the chat save succeeds', async () => {
+        const { calls } = setupServer({ streamChunks: ['response'], job: { status: 'done' } })
+        const response = await makeJobFetch(makeOpts({ streaming: false, jobKind: 'main', backgroundBrowsing: true }))('https://provider.test')
+        expect(canBrowseServerJob()).toBe(true)
+        expect(await drain(response)).toBe('response')
+        expect(callsFor(calls, '/api/model-jobs/job-1/claim', 'POST')).toHaveLength(0)
+        await expect(saveThenClaimJob('gen-1', async () => { throw Error('save failed') })).rejects.toThrow('save failed')
+        expect(callsFor(calls, '/api/model-jobs/job-1/claim', 'POST')).toHaveLength(0)
+        await saveThenClaimJob('gen-1', async () => {})
+        expect(callsFor(calls, '/api/model-jobs/job-1/claim', 'POST')).toHaveLength(1)
+    })
     test('streams journal bytes through and claims after a clean done', async () => {
         const { calls } = setupServer({ streamChunks: ['hel', 'lo ', 'world'], job: { status: 'done' } })
         const res = await makeJobFetch(makeOpts())('https://provider.example/v1/chat', {

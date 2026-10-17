@@ -1,3 +1,4 @@
+import { legacyJsonFetch } from '../legacyServerJob'
 import { language } from "src/lang"
 import { notifyError } from "src/ts/alert";
 import { getDatabase } from "src/ts/storage/database.svelte"
@@ -625,7 +626,7 @@ export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<req
 async function requestHTTPOpenAI(replacerURL:string,body:any, headers:Record<string,string>, arg:RequestDataArgumentExtended):Promise<requestDataResponse>{
     
     const db = getDatabase()
-    const res = await globalFetch(replacerURL, {
+    const res = await legacyJsonFetch(arg, 'openai-compatible', replacerURL, {
         logCategory: 'llm',
         logSource: arg.logSource ?? toLogSource(arg.mode),
         logModel: arg.modelInfo?.id,

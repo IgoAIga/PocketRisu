@@ -1,3 +1,4 @@
+import { legacyJsonFetch } from './legacyServerJob'
 import { Sha256 } from "@aws-crypto/sha256-js"
 import { HttpRequest } from "@smithy/protocol-http"
 import { SignatureV4 } from "@smithy/signature-v4"
@@ -957,7 +958,7 @@ async function requestClaudeHTTP(replacerURL:string, headers:{[key:string]:strin
     }
 
     const db = getDatabase()
-    const res = await globalFetch(replacerURL, {
+    const res = await legacyJsonFetch(arg, 'anthropic-messages', replacerURL, {
         logCategory: 'llm',
         logSource: arg.logSource ?? toLogSource(arg.mode),
         body: body,
